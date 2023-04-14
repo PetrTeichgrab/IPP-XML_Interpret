@@ -10,9 +10,13 @@
  <instruction order="4" opcode="DEFVAR">
   <arg1 type="var">GF@counter</arg1>
  </instruction>
- <instruction order="4" opcode="SUB">
-  <arg1 type="int">end</arg1>
-  <arg2 type="int">GF@counter</arg2>
-  <arg3 type="int">aaa</arg3>
+ <instruction order="5" opcode="IDIV">
+  <arg1 type="var">GF@counter</arg1>
+  <arg2 type="symb">int@19</arg2>
+  <arg3 type="int">int@6</arg3>
+ </instruction>
+ <instruction order="6" opcode="TYPE">
+  <arg1 type="var">LF@counter</arg1>
+  <arg2 type="symb">GF@counter</arg2>
  </instruction>
 </program>
