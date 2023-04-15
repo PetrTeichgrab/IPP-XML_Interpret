@@ -3,6 +3,7 @@ import xml.etree.ElementTree as et
 import argparse 
 
 # author: Teichgráb Petr
+# python3 interpret.py --source=testfiles/test1
 
 # • 52 - chyba při sémantických kontrolách vstupního kódu v IPPcode23 (např. použití nedefino-
 # vaného návěští, redefinice proměnné);
@@ -18,7 +19,9 @@ FrameInstructions = ["move", "createframe", "popframe", "defvar", "pushframe"]
 ArithmeticInstructions = ["add", "sub", "mul", "idiv"]
 InputOutputTypeInstructions = ["write", "read", "type"]
 LogicalInstructions = ["and", "or", "not", "lt", "gt", "eq"]
-Instructions = ["move", "createframe", "popframe", "defvar", "pushframe", "add", "sub", "mul", "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq"]
+TypeConverterInstructions = ["int2char", "stri2int"]
+Instructions = ["move", "createframe", "popframe", "defvar", "pushframe", "add", "sub", "mul", 
+                "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq", "int2char", "stri2int"]
 
 exitCodes = {
     "SemanticCheckError" : 52,
@@ -217,7 +220,7 @@ class ArithmeticInstruction(Instruction):
                 exit(exitCodes["MissingValueError"])
             var.SetType("int")
             return var, operand1, operand2
-        
+   
         #overriding parent method
         def Execute(self):
             if self._opcode.lower() in ArithmeticInstructions:
@@ -323,7 +326,6 @@ class InputOutputTypeInstruction(Instruction):
 class LogicalInstruction(Instruction):
     def __init__(self, order:int, opcode:str, frame):
             super().__init__(order, opcode, frame)
-            self._frame = frame
 
     def Lt(self):
         var, operand1, operand2 = self.ProcessOperands()
@@ -361,6 +363,50 @@ class LogicalInstruction(Instruction):
             var.SetType("bool")
             var.SetValue(False)
 
+    def And(self):
+        var, arg1, arg2 = self.ProcessLogicOperands()
+        var.SetValue(arg1 and arg2)
+
+    def Or(self):
+        var, arg1, arg2 = self.ProcessLogicOperands()
+        var.SetValue(arg1 or arg2)
+
+    def Not(self):
+        arg1 = self._argList[1]
+        self._typeControl.CheckType(arg1, "bool")
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        var.SetType("bool")
+        arg1Val = arg1.GetSymbolValue()
+
+        if arg1Val.lower() == "true":
+            arg1Val = True
+        else:
+            arg1Val = False
+
+        var.SetValue(not(arg1Val))
+
+    def ProcessLogicOperands(self):
+        arg1 = self._argList[1]
+        arg2 = self._argList[2]
+        self._typeControl.CheckType(arg1, "bool")
+        self._typeControl.CheckType(arg2, "bool")
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        var.SetType("bool")
+        arg1Val = arg1.GetSymbolValue()
+        arg2Val = arg2.GetSymbolValue()
+
+        if arg1Val.lower() == "true":
+            arg1Val = True
+        else:
+            arg1Val = False
+
+        if arg2Val.lower() == "true":
+            arg2Val = True
+        else:
+            arg2Val = False
+
+        return var, arg1Val, arg2Val
+    
     def ProcessOperands(self):
         arg1 = self._argList[1]
         arg2 = self._argList[2]
@@ -371,6 +417,43 @@ class LogicalInstruction(Instruction):
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
 
         return var, arg1.GetSymbolValue(), arg2.GetSymbolValue()
+
+
+class TypeConversionInstruction(Instruction):
+    def __init__(self, order:int, opcode:str, frame):
+        super().__init__(order, opcode, frame)
+
+    def Int2char(self):
+        arg = self._argList[1]
+        self._typeControl.CheckType(arg, "int")
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        try:
+            char = chr(int(arg.GetSymbolValue()))
+        except: 
+            exit(exitCodes["FalseStringOperationError"])
+        var.SetType("string")
+        var.SetValue(char)
+    
+    def Stri2int(self):
+        arg1 = self._argList[1]
+        arg2 = self._argList[2]
+        self._typeControl.CheckType(arg1, "string")
+        self._typeControl.CheckType(arg2, "int")
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        string = arg1.GetSymbolValue()
+        stringLen = len(string)
+        index = int(arg2.GetSymbolValue())
+        if index < 0 or index > stringLen:
+            exit(exitCodes["FalseStringOperationError"])
+        
+        var.SetType("int")
+        var.SetValue(ord(string[index]))
+
+
+class StringInstruction(Instruction):
+    def __init__(self, order:int, opcode:str, frame):
+        super().__init__(order, opcode, frame)
+
 
 class InstructionFactory:
     
@@ -389,6 +472,8 @@ class InstructionFactory:
             return InputOutputTypeInstruction(self._order, self._opcode, self._frame)
         if self._opcode in LogicalInstructions:
             return LogicalInstruction(self._order, self._opcode, self._frame)
+        if self._opcode in TypeConverterInstructions:
+            return TypeConversionInstruction(self._order, self._opcode, self._frame)
         
 
 class TypeController:
@@ -410,11 +495,11 @@ class TypeController:
                 exit(exitCodes["FalseOperandTypeError"])
 
         if expectedSymbType == "string":
-            if not(arg.IsIntConst() or self.CheckVarsType(arg, "stringVar")):
+            if not(arg.IsStringConst() or self.CheckVarsType(arg, "stringVar")):
                 exit(exitCodes["FalseOperandTypeError"])
 
         if expectedSymbType == "bool":
-            if not(arg.IsIntConst() or self.CheckVarsType(arg, "boolVar")):
+            if not(arg.IsBoolConst() or self.CheckVarsType(arg, "boolVar")):
                 exit(exitCodes["FalseOperandTypeError"])
 
     def TypesEqual(self, arg1, arg2):
@@ -424,19 +509,25 @@ class TypeController:
 
     def CheckVarsType(self, arg, expectedVarType):
         if expectedVarType == "intVar":
-            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if(var == False):
+                return False
             if var.GetType() != "int":
                 exit(exitCodes["FalseOperandTypeError"])
             return True
 
         if expectedVarType == "stringVar":
-            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if(var == False):
+                return False
             if var.GetType() != "string":
                 exit(exitCodes["FalseOperandTypeError"])
             return True
 
         if expectedVarType == "boolVar":
-            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if(var == False):
+                return False
             if var.GetType() != "bool":
                 exit(exitCodes["FalseOperandTypeError"])
             return True
