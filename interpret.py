@@ -2,6 +2,8 @@ import re
 import xml.etree.ElementTree as et
 import argparse 
 
+# author: Teichgráb Petr
+
 # • 52 - chyba při sémantických kontrolách vstupního kódu v IPPcode23 (např. použití nedefino-
 # vaného návěští, redefinice proměnné);
 # • 53 - běhová chyba interpretace – špatné typy operandů;
@@ -15,6 +17,8 @@ import argparse
 FrameInstructions = ["move", "createframe", "popframe", "defvar", "pushframe"]
 ArithmeticInstructions = ["add", "sub", "mul", "idiv"]
 InputOutputTypeInstructions = ["write", "read", "type"]
+LogicalInstructions = ["and", "or", "not", "lt", "gt", "eq"]
+Instructions = ["move", "createframe", "popframe", "defvar", "pushframe", "add", "sub", "mul", "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq"]
 
 exitCodes = {
     "SemanticCheckError" : 52,
@@ -59,6 +63,7 @@ class Instruction:
         self._opcode = opcode
         self._argList = []
         self._frame = frame
+        self._typeControl = TypeController(frame)
     
     def AddArgument(self,arg):
         self._argList.append(arg)
@@ -72,8 +77,22 @@ class Instruction:
     def GetArgs(self):
         return self._args
     
+    def ConvertString(self, string):
+        i = 0
+        result = ''
+        while i < len(string):
+            if string[i] == '\\' and i+3 < len(string) and string[i+1:i+4].isdigit():
+                # decode escaped sequence
+                result += chr(int(string[i+1:i+4]))
+                i += 4
+            else:
+                # append normal character
+                result += string[i]
+                i += 1
+        return result
+    
     def Execute(self):
-            if self._opcode.lower() in FrameInstructions:
+            if self._opcode.lower() in Instructions:
                 eval("self." + self._opcode.capitalize() + "()") 
 
 
@@ -133,7 +152,7 @@ class Frame:
                 if v.GetName() == varName:
                     return v
         elif leave == True:
-            exit(exitCodes["SemanticCheckError"])
+            exit(exitCodes["NonExistingVariableError"])
         else:
             return False
         
@@ -180,7 +199,7 @@ class ArithmeticInstruction(Instruction):
             var.SetValue(operand1 - operand2)
             if(operand2 == 0):
                 exit(exitCodes["FalseOperandValueError"])
-            var.SetValue(operand1 // operand2)
+            var.SetValue(int(operand1 // operand2))
 
         def ProcessOperands(self):
             arg1 = self._argList[0]
@@ -189,16 +208,20 @@ class ArithmeticInstruction(Instruction):
             sym2 = self._argList[2]
             if not((sym1.IsIntConst() or sym1.IsVariable()) and (sym2.IsIntConst or sym2.IsVariable())):
                 exit(exitCodes["FalseOperandTypeError"])
+            if (sym1.GetDataType() != "int" or sym2.GetDataType() != "int"):
+                exit(exitCodes["FalseOperandTypeError"])
 
             operand1 = int(sym1.GetSymbolValue())
             operand2 = int(sym2.GetSymbolValue())
+            if(operand1 == False or operand2 == False):
+                exit(exitCodes["MissingValueError"])
+            var.SetType("int")
             return var, operand1, operand2
         
         #overriding parent method
         def Execute(self):
             if self._opcode.lower() in ArithmeticInstructions:
-                TypeController.checkThreeArgsType(self._argList[0].GetArgType(), self._argList[1].GetArgType(), 
-                                                  self._argList[2].GetArgType(), ["var"], ["int", "symb"],["int", "symb"])
+                self._typeControl.checkThreeArgs(self._argList[0], self._argList[1], self._argList[2], "var", "int", "int")
                 #calling appropriate function
                 if self._opcode.lower() in ArithmeticInstructions:
                     eval("self." + self._opcode.capitalize() + "()")                  
@@ -210,7 +233,11 @@ class FrameInstruction(Instruction):
             self._frame = frame
 
         def Move(self):
-            pass
+            symbType = self._argList[1].GetDataType()
+            symbVal = self._argList[1].GetSymbolValue()
+            var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+            var.SetType(symbType)            
+            var.SetValue(symbVal)
 
         def Defvar(self):
             arg = self._argList[0].GetArgValue()
@@ -229,9 +256,6 @@ class FrameInstruction(Instruction):
             self._frame.PopFrame()
 
         #overriding parent method
-        def Execute(self):
-            if self._opcode.lower() in FrameInstructions:
-                eval("self." + self._opcode.capitalize() + "()") 
 
 
 class InputOutputTypeInstruction(Instruction):
@@ -239,52 +263,114 @@ class InputOutputTypeInstruction(Instruction):
         super().__init__(order, opcode, frame)
 
     def Read(self):
-        var = self._argList[0]
-        type = self._argList[1] #string
-        inp = input() #5
+        type = self._argList[1].GetArgValue()
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        
+        inputVal = input()
+        result = None
+
+        if type == "int":
+            if re.match(r'[-+]*[0-9]+$', inputVal):
+                result = int(inputVal)
+                var.SetType("int")
+
+        elif type == "bool":
+            if re.match(r'^true$', inputVal, re.IGNORECASE):
+                result = True
+            else:
+                result = False
+            var.SetType("bool")
+
+        elif type == "string":
+            result = self.ConvertString(str(inputVal))
+            var.SetType("string")
+
+        self._typeControl.CheckType(self._argList[0], "var")
+
+        var.SetValue(result)
+
+        if(result == None):
+            var.SetType("nil")
+
+    def Write(self):
+        output = self._argList[0]
+        if output.GetDataType() == "nil":
+            print("",end='')
+        elif output.GetDataType() == "bool":
+            print(str(output.GetSymbolValue()).lower(), end='')
+        else:
+            print(str(output.GetSymbolValue()), end = '')
 
     def Type(self):
         arg1 = self._argList[0]
         
-        var = self._frame.FindVariable(arg1.GetArgValue(), False)
-
-        #TODO overwrite this method with implemented functions in InstructionArgument class
-
-        if(var == False):
-            exit(exitCodes["SemanticCheckError"])
+        var = self._frame.FindVariable(arg1.GetArgValue(), True)
 
         symb = self._argList[1]
-        symbVal = symb.GetArgValue()
 
-        #checking if symbol is variable
-        if re.match(r'^(GF|LF|TF)@.*', symbVal):   
-            
-            varSymb = self._frame.FindVariable(symbVal, False)
+        symbType = symb.GetDataType()
 
-            if (varSymb == False):
-                exit(exitCodes["SemanticCheckError"])
-
-            varType = varSymb.GetType()
-            if varType == "NotInit":
-                var.SetType("")     
-            else:
-                var.SetType(varSymb.GetType())
-
+        if symbType == "NotInit":
+            var.SetValue("")
         else:
-            if re.match(r'^int@[-+]*[0-9]+$', symbVal):
-                var.SetType("int")
-            if re.match(r'^string@.*', symbVal):
-                var.SetType("string")
-            if re.match(r'^bool@((true|false){1})$', symbVal):
-                var.SetType("bool")
-            if re.match(r'^nil@nil$|^nil@$', symbVal):
-                var.SetType("nil")
-            
+            var.SetValue(symbType)
 
     def Execute(self):
         if self._opcode.lower() in InputOutputTypeInstructions:
             eval("self." + self._opcode.capitalize() + "()") 
 
+
+class LogicalInstruction(Instruction):
+    def __init__(self, order:int, opcode:str, frame):
+            super().__init__(order, opcode, frame)
+            self._frame = frame
+
+    def Lt(self):
+        var, operand1, operand2 = self.ProcessOperands()
+        
+        if operand1 < operand2:
+            var.SetType("bool")
+            var.SetValue(True)
+        else:
+            var.SetType("bool")
+            var.SetValue(False)
+
+    def Gt(self):
+        var, operand1, operand2 = self.ProcessOperands()
+        
+        if operand1 > operand2:
+            var.SetType("bool")
+            var.SetValue(True)
+        else:
+            var.SetType("bool")
+            var.SetValue(False)
+
+    def Eq(self):
+        arg1 = self._argList[1]
+        arg2 = self._argList[2]
+        self._typeControl.TypesEqual(arg1, arg2)
+
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        operand1 = arg1.GetSymbolValue()
+        operand2 = arg2.GetSymbolValue()
+
+        if operand1 == operand2:
+            var.SetType("bool")
+            var.SetValue(True)
+        else:
+            var.SetType("bool")
+            var.SetValue(False)
+
+    def ProcessOperands(self):
+        arg1 = self._argList[1]
+        arg2 = self._argList[2]
+        if(arg1.GetDataType() == "nil" or arg2.GetDataType() == "nil"):
+            exit(exitCodes["FalseOperandTypeError"])
+
+        self._typeControl.TypesEqual(arg1, arg2)
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+
+        return var, arg1.GetSymbolValue(), arg2.GetSymbolValue()
 
 class InstructionFactory:
     
@@ -301,16 +387,61 @@ class InstructionFactory:
             return ArithmeticInstruction(self._order, self._opcode, self._frame)
         if self._opcode in InputOutputTypeInstructions:
             return InputOutputTypeInstruction(self._order, self._opcode, self._frame)
+        if self._opcode in LogicalInstructions:
+            return LogicalInstruction(self._order, self._opcode, self._frame)
         
 
 class TypeController:
-    def checkType(type, expectedType):
-        if not(type in expectedType):
-            exit(exitCodes["FalseOperandTypeError"])   
-    def checkThreeArgsType(type1, type2, type3, expectedType1, expectedType2, expectedType3):
-        if not(type1 in expectedType1 and type2 in expectedType2 and type3 in expectedType3):
-            exit(exitCodes["FalseOperandTypeError"])   
+    def __init__(self, frame) -> None:
+        self._frame = frame
+
+    def checkThreeArgs(self, arg1, arg2, arg3, expectedType1, expectedType2, expectedType3):
+        self.CheckType(arg1, expectedType1)
+        self.CheckType(arg2, expectedType2)
+        self.CheckType(arg3, expectedType3)
         
+    def CheckType(self, arg, expectedSymbType):
+
+        if expectedSymbType == "var":
+            self._frame.FindVariable(arg.GetArgValue(), True)
+
+        if expectedSymbType == "int":
+            if not(arg.IsIntConst() or self.CheckVarsType(arg, "intVar")):
+                exit(exitCodes["FalseOperandTypeError"])
+
+        if expectedSymbType == "string":
+            if not(arg.IsIntConst() or self.CheckVarsType(arg, "stringVar")):
+                exit(exitCodes["FalseOperandTypeError"])
+
+        if expectedSymbType == "bool":
+            if not(arg.IsIntConst() or self.CheckVarsType(arg, "boolVar")):
+                exit(exitCodes["FalseOperandTypeError"])
+
+    def TypesEqual(self, arg1, arg2):
+        if arg1.GetDataType() != arg2.GetDataType():
+            exit(exitCodes["FalseOperandTypeError"])
+
+
+    def CheckVarsType(self, arg, expectedVarType):
+        if expectedVarType == "intVar":
+            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            if var.GetType() != "int":
+                exit(exitCodes["FalseOperandTypeError"])
+            return True
+
+        if expectedVarType == "stringVar":
+            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            if var.GetType() != "string":
+                exit(exitCodes["FalseOperandTypeError"])
+            return True
+
+        if expectedVarType == "boolVar":
+            var = self._frame.FindVariable(arg.GetArgValue(), True)
+            if var.GetType() != "bool":
+                exit(exitCodes["FalseOperandTypeError"])
+            return True
+        
+
 class InstructionArguments:
 
     def __init__(self, type, value, frame) -> None:
@@ -350,13 +481,39 @@ class InstructionArguments:
         return False
     
     def GetSymbolValue(self):
-        val = self._argValue.split('@')
-        if self.IsIntConst() or self.IsBoolConst() or self.IsStringConst() or self.IsNilConst():
-            return val[1]
+        symbVal = self._argValue.split('@')
+        var = self._frame.FindVariable(self._argValue, False)
+        if var != False:
+            if var.GetType() == "int":
+                return int(var.GetValue())
+            else: 
+                return var.GetValue()
+        if self.IsIntConst():
+            return int(symbVal[1])
+        if self.IsBoolConst() or self.IsStringConst() or self.IsNilConst():
+            return symbVal[1]
+        
+    def GetVarName(self):
         if self.IsVariable():
-            var = self._frame.FindVariable(val[1], True)
-            return var.GetValue()
-            
+            name = self._argValue.split('@')
+            return name[1]
+        
+    def GetDataType(self):
+        if self.IsIntConst():
+            return "int"
+        if self.IsStringConst():
+            return "string"
+        if self.IsNilConst():
+            return "nil"
+        if self.IsBoolConst():
+            return "bool"
+        if self.IsVariable():
+            var = self._frame.FindVariable(self._argValue, True)
+            type = var.GetType()
+            if type == "NotInit":
+                return False
+            return type
+        
 
 class Var:
     def __init__(self, name, frame) -> None:
