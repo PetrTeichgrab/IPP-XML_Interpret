@@ -20,8 +20,14 @@ ArithmeticInstructions = ["add", "sub", "mul", "idiv"]
 InputOutputTypeInstructions = ["write", "read", "type"]
 LogicalInstructions = ["and", "or", "not", "lt", "gt", "eq"]
 TypeConverterInstructions = ["int2char", "stri2int"]
+StringInstructions = ["concat" , "strlen", "getchar", "setchar"]
+DataFlowInstructions = ["label", "jump", "jumpifeq", "jumpifneq", "exit"]
+CallReturnInstructions = ["call", "return"]
+
 Instructions = ["move", "createframe", "popframe", "defvar", "pushframe", "add", "sub", "mul", 
-                "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq", "int2char", "stri2int"]
+                "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq", "int2char", 
+                "stri2int", "concat" , "strlen", "getchar", "setchar", 
+                "label", "jump", "jumpifeq", "jumpifneq", "exit", "call", "return"]
 
 exitCodes = {
     "SemanticCheckError" : 52,
@@ -98,7 +104,9 @@ class Instruction:
             if self._opcode.lower() in Instructions:
                 eval("self." + self._opcode.capitalize() + "()") 
 
-
+    def IsLabelDefined(self, labelDict, labelName):
+        return labelName in labelDict
+    
 class Frame:
     def __init__(self) -> None:
         self.globalFrame = []
@@ -209,6 +217,8 @@ class ArithmeticInstruction(Instruction):
             var = self._frame.FindVariable(arg1.GetArgValue(), True)
             sym1 = self._argList[1]
             sym2 = self._argList[2]
+            self._typeControl.CheckType(sym1,"int")
+            self._typeControl.CheckType(sym2,"int")
             if not((sym1.IsIntConst() or sym1.IsVariable()) and (sym2.IsIntConst or sym2.IsVariable())):
                 exit(exitCodes["FalseOperandTypeError"])
             if (sym1.GetDataType() != "int" or sym2.GetDataType() != "int"):
@@ -219,15 +229,7 @@ class ArithmeticInstruction(Instruction):
             if(operand1 == False or operand2 == False):
                 exit(exitCodes["MissingValueError"])
             var.SetType("int")
-            return var, operand1, operand2
-   
-        #overriding parent method
-        def Execute(self):
-            if self._opcode.lower() in ArithmeticInstructions:
-                self._typeControl.checkThreeArgs(self._argList[0], self._argList[1], self._argList[2], "var", "int", "int")
-                #calling appropriate function
-                if self._opcode.lower() in ArithmeticInstructions:
-                    eval("self." + self._opcode.capitalize() + "()")                  
+            return var, operand1, operand2               
 
 
 class FrameInstruction(Instruction):
@@ -350,7 +352,7 @@ class LogicalInstruction(Instruction):
     def Eq(self):
         arg1 = self._argList[1]
         arg2 = self._argList[2]
-        self._typeControl.TypesEqual(arg1, arg2)
+        self._typeControl.TypesEqualOrNil(arg1, arg2)
 
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
         operand1 = arg1.GetSymbolValue()
@@ -443,7 +445,7 @@ class TypeConversionInstruction(Instruction):
         string = arg1.GetSymbolValue()
         stringLen = len(string)
         index = int(arg2.GetSymbolValue())
-        if index < 0 or index > stringLen:
+        if index < 0 or index > (stringLen - 1):
             exit(exitCodes["FalseStringOperationError"])
         
         var.SetType("int")
@@ -454,6 +456,148 @@ class StringInstruction(Instruction):
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
 
+    def Concat(self):
+        var, arg1, arg2 = self.ProcessInstruction()
+        self._typeControl.CheckType(arg1, "string")
+        self._typeControl.CheckType(arg2, "string")
+        var.SetType("string")
+        var.SetValue(str(arg1.GetSymbolValue()) + str(arg2.GetSymbolValue()))
+
+    def Strlen(self):
+        arg = self._argList[1]
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        self._typeControl.CheckType(arg, "string")
+        strLen = len(str(arg.GetSymbolValue()))
+        var.SetType("int")
+        var.SetValue(strLen)
+
+    def Getchar(self):
+        var, arg1, arg2 = self.ProcessInstruction()
+        self._typeControl.CheckType(arg1, "string")
+        self._typeControl.CheckType(arg2, "int")
+        string = str(arg1.GetSymbolValue())
+        index = int(arg2.GetSymbolValue())
+        if index < 0 or index > (len(string)-1):
+            exit(exitCodes["FalseStringOperationError"])
+        var.SetType("string")
+        var.SetValue(string[index])
+
+    def Setchar(self):
+        var, arg1, arg2 = self.ProcessInstruction()
+        self._typeControl.checkThreeArgs(self._argList[0], arg1, arg2, "string", "int", "string")
+        modifiedString = str(var.GetValue())
+        index = int(arg1.GetSymbolValue())
+        stringToGetCharFrom = str(arg2.GetSymbolValue())
+
+        if index < 0 or index > (len(modifiedString)-1):
+            exit(exitCodes["FalseStringOperationError"])
+        
+        text = 'abcdefg'
+        new = list(text)
+        new[6] = 'W'
+        ''.join(new)
+
+        modifiedStringList = list(modifiedString)
+        modifiedStringList[index] = stringToGetCharFrom[0]
+        modifiedString = ''.join(modifiedStringList)
+        var.SetValue(modifiedString)
+
+    def ProcessInstruction(self):
+        arg1 = self._argList[1]
+        arg2 = self._argList[2]
+        var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        return var, arg1, arg2
+
+
+class DataFlowInstruction(Instruction):
+    def __init__(self, order:int, opcode:str, frame):
+        super().__init__(order, opcode, frame)
+
+    def Label(self, labelDict, index):
+        labelName = self._argList[0].GetArgValue()
+        if self.IsLabelDefined(labelDict, labelName):    
+            exit(exitCodes["SemanticCheckError"])
+
+        labelDict[labelName] = index
+        index+=1
+        return index
+
+    def Jump(self, labelDict, index):        
+        if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
+            exit(exitCodes["SemanticCheckError"])
+        
+        index = int(labelDict[self._argList[0].GetArgValue()]) + 1
+        return index
+
+    def Jumpifeq(self, labelDict, index):
+        if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
+            exit(exitCodes["SemanticCheckError"])
+
+        isEq = self._typeControl.TypesEqualOrNil(self._argList[1], self._argList[2], False)
+        index = int(index)+1
+        if not(isEq):
+            return index
+
+        if(self._argList[1].GetSymbolValue() != self._argList[2].GetSymbolValue()):
+            return index
+        
+        index = int(labelDict[self._argList[0].GetArgValue()]) + 1
+        return index
+
+    def Jumpifneq(self, labelDict, index):
+        if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
+            exit(exitCodes["SemanticCheckError"])
+
+        isEq = self._typeControl.TypesEqualOrNil(self._argList[1], self._argList[2], False)
+        index = int(index)+1
+        if not(isEq):
+            return index
+
+        if(self._argList[1].GetSymbolValue() == self._argList[2].GetSymbolValue()):
+            return index
+        
+        index = int(labelDict[self._argList[0].GetArgValue()]) + 1
+        return index
+
+    def ExitProgram(self):
+        arg = self._argList[0]
+        self._typeControl.CheckType(arg, "int")
+        exitVal = int(arg.GetSymbolValue())
+        if exitVal not in range(0,50):
+            exit(exitCodes["FalseOperandValueError"])
+        exit(exitVal)
+
+    def Execute(self, labelDict, index):
+        if self._opcode.lower() in Instructions:
+            if self._opcode.lower() == "exit":
+                self.ExitProgram()
+            method = getattr(self, self._opcode.capitalize())
+            return method(labelDict, index)
+
+
+class CallReturnInstruction(Instruction):
+    def __init__(self, order:int, opcode:str, frame):
+        super().__init__(order, opcode, frame)
+
+    def Call(self, labelDict, callStack, index):
+        if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
+            exit(exitCodes["SemanticCheckError"])
+        callStack.append(index)
+        index = int(labelDict[self._argList[0].GetArgValue()])+1
+        return index, callStack
+
+    def Return(self, labelDict, callStack, index):
+        if len(callStack) == 0:
+            index+=1
+            return index, callStack
+        index = callStack[-1] + 1
+        return index, callStack
+
+    def Execute(self, labelDict, callStack, index):
+        if self._opcode.lower() in Instructions:
+            method = getattr(self, self._opcode.capitalize())
+            return method(labelDict, callStack, index)
+    
 
 class InstructionFactory:
     
@@ -474,6 +618,12 @@ class InstructionFactory:
             return LogicalInstruction(self._order, self._opcode, self._frame)
         if self._opcode in TypeConverterInstructions:
             return TypeConversionInstruction(self._order, self._opcode, self._frame)
+        if self._opcode in StringInstructions:
+            return StringInstruction(self._order, self._opcode, self._frame)
+        if self._opcode in DataFlowInstructions:
+            return DataFlowInstruction(self._order, self._opcode, self._frame)
+        if self._opcode in CallReturnInstructions:
+            return CallReturnInstruction(self._order, self._opcode, self._frame)
         
 
 class TypeController:
@@ -505,6 +655,17 @@ class TypeController:
     def TypesEqual(self, arg1, arg2):
         if arg1.GetDataType() != arg2.GetDataType():
             exit(exitCodes["FalseOperandTypeError"])
+
+    def TypesEqualOrNil(self, arg1, arg2, dontReturn):
+        arg1Type = arg1.GetDataType()
+        arg2Type = arg2.GetDataType()
+        isNotEq = arg1Type != arg2Type and (arg1Type != "nil" or arg2Type != "nil")
+        if dontReturn:
+            if isNotEq:
+                exit(exitCodes["FalseOperandTypeError"])
+
+        return not(isNotEq)
+        
 
 
     def CheckVarsType(self, arg, expectedVarType):
@@ -663,7 +824,7 @@ class Interpret:
         frame = Frame()
         for ins in self._root:
             instructionProps = list(ins.attrib.values())
-            instruction = InstructionFactory(int(instructionProps[0]), instructionProps[1], frame).GetInstructionType()
+            instruction = InstructionFactory(int(instructionProps[0]), instructionProps[1], frame).GetInstructionType()         
 
             for arg in ins:
                 instructionArg = InstructionArguments(list(arg.attrib.values()), arg.text, frame)
@@ -672,6 +833,7 @@ class Interpret:
             self._instructionList.append(instruction)
 
         self._instructionList.sort(key=lambda x: x.GetOrder())
+        self._instructionList.append("END")
 
     def GetInstructionList(self):
         return self._instructionList
@@ -685,8 +847,17 @@ class Interpret:
     def start(self):
         self.makeXmlTree()
         self.ConvertXmlTreeToInstructList()
-        for instruction in self._instructionList:
-            instruction.Execute()
+        index = 0
+        labelDict = {}
+        callStack = []
+        while(self._instructionList[index] != "END"):
+            if self._instructionList[index].GetOpcode() in DataFlowInstructions:
+                index = self._instructionList[index].Execute(labelDict, index)
+            if self._instructionList[index].GetOpcode() in CallReturnInstructions:
+                index, callStack = self._instructionList[index].Execute(labelDict, callStack, index)                  
+            else:
+                self._instructionList[index].Execute()
+                index+=1
 
 
 i = Interpret()
