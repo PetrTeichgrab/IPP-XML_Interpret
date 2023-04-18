@@ -15,20 +15,24 @@ import argparse
 # • 57 - běhová chyba interpretace – špatná hodnota operandu (např. dělení nulou, špatná návra-
 # tová hodnota instrukce EXIT);
 # • 58 - běhová chyba interpretace – chybná práce s řetězcem.
+
+#Definování listů obsahujících jednotlivé instrukce
 FrameInstructions = ["move", "createframe", "popframe", "defvar", "pushframe"]
 ArithmeticInstructions = ["add", "sub", "mul", "idiv"]
 InputOutputTypeInstructions = ["write", "read", "type"]
 LogicalInstructions = ["and", "or", "not", "lt", "gt", "eq"]
 TypeConverterInstructions = ["int2char", "stri2int"]
 StringInstructions = ["concat" , "strlen", "getchar", "setchar"]
-DataFlowInstructions = ["label", "jump", "jumpifeq", "jumpifneq", "exit"]
+DataFlowInstructions = ["jump", "jumpifeq", "jumpifneq", "exit", "label"]
 CallReturnInstructions = ["call", "return"]
+DebuggingInstructions = ["dprint", "break"]
 
 Instructions = ["move", "createframe", "popframe", "defvar", "pushframe", "add", "sub", "mul", 
                 "idiv", "write", "read", "type", "and", "or", "not", "lt", "gt", "eq", "int2char", 
                 "stri2int", "concat" , "strlen", "getchar", "setchar", 
-                "label", "jump", "jumpifeq", "jumpifneq", "exit", "call", "return"]
+                "label","jump", "jumpifeq", "jumpifneq", "exit", "call", "return", "dprint", "break"]
 
+#Slovník exit kódů
 exitCodes = {
     "SemanticCheckError" : 52,
     "FalseOperandTypeError" : 53,
@@ -39,34 +43,67 @@ exitCodes = {
     "FalseStringOperationError" : 58
 }
 
-
+#Třída ArgsParser starající se o načítání argumentů ze vstupu
 class ArgsParser:
+    #inicializace
+    def __init__(self) -> None:
+        self._sourceFile = ""
+        self._inputFile = False
+        self._inputFileLine = -1
+        self._inputFileList = []
 
+    #vytvoření parseru, použití třídy ArgumentParser
     def CreateParser(self):
         self.parser = argparse.ArgumentParser(
         prog='Interpret',
-        description='Interpret of XML code')
+        description='Interpret XML kódu')
         return self.parser
 
+    #Přidání jednotlivých argumentů do parseru
     def AddArgs(self):
-        self.parser.add_argument('-s', '--source', nargs=1)
+        self.parser.add_argument('-s', '--source', nargs=1, 
+                                 help="Argument source musí obsahovat cestu k souboru se XML reprezentací zdrojového kódu")
+        self.parser.add_argument('-i', '--input', nargs=1, 
+                                 help="Argument Input musí obsahovat cestu k souboru se vstupy pro samotnou interpretaci zadaného zdrojového kódu.")
 
-    #TODO: def CheckArgs():
 
-    def GetFileName(self):
-        arguments = self.parser.parse_args()
-        return arguments.source[0]
+    #Gettery, funkce pro přístup k 'privátním' atributum
+    def GetSourceFile(self):
+        return self._sourceFile
+
+    def GetInputFileList(self):
+        return self._inputFileList
     
+    #Pří každém zavolání funkce se inkrementuje hodnota, která 
+    # 'ukazuje' na aktuálně načítanou hodnotu z inputFile
+    def GetInputFileLine(self):
+        self._inputFileLine+=1
+        return self._inputFileLine
+    
+    #Funkce převede xml kód ze vstupu na strom
     def GetXmlTree(self):
-        return et.parse(self.GetFileName())
+        return et.parse(self._sourceFile)
 
+    #Zpracování argumentů a vytvoření listu z inputFile instrukcí
     def ProcessArgs(self):
         self.parser = self.CreateParser()
         self.AddArgs()
+        arguments = self.parser.parse_args()
+        if arguments.source:
+            self._sourceFile = arguments.source[0]
+        if arguments.input:
+            self._inputFile = arguments.input[0]
+            file = open(self._inputFile, 'r')
+            inputListWithWS = file.readlines()
 
+            #odstranění whitespace charakterů a přidání hodnot do listu
+            for line in inputListWithWS:
+                self._inputFileList.append(line.rstrip())
 
+#Třída reprezentuje instrukci jazyka IPPcode23
 class Instruction:
 
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         self._order = order
         self._opcode = opcode
@@ -74,137 +111,178 @@ class Instruction:
         self._frame = frame
         self._typeControl = TypeController(frame)
     
+    #Přidání argumentů instrukce
     def AddArgument(self,arg):
         self._argList.append(arg)
 
+    #Gettery pro přístup k privátním atributum
     def GetOrder(self):
         return self._order
     
     def GetOpcode(self):
         return self._opcode
     
-    def GetArgs(self):
-        return self._args
+    def GetArgList(self):
+        return self._argList
     
-    def ConvertString(self, string):
+    #Funkce pro převedení charakterů reprezentovaných tříčíselným kódem na jejich hodnotu
+    #Vstupem je řetězec načtený z funkce Read nebo ze zdrojového souboru
+    #Výstupem je řetěze, který již neobsahuje charaktery v podobě kódů
+    def ConvertString(self, EntryString):
+        resultString = ''
         i = 0
-        result = ''
-        while i < len(string):
-            if string[i] == '\\' and i+3 < len(string) and string[i+1:i+4].isdigit():
-                # decode escaped sequence
-                result += chr(int(string[i+1:i+4]))
+        while i < len(EntryString):
+            if i+3 < len(EntryString) and EntryString[i] == '\\' and EntryString[i+1:i+4].isdigit():
+                resultString += chr(int(EntryString[i+1:i+4]))
                 i += 4
             else:
-                # append normal character
-                result += string[i]
+                resultString += EntryString[i]
                 i += 1
-        return result
+        return resultString
     
+    #Funkce pro provedení instrukce
     def Execute(self):
             if self._opcode.lower() in Instructions:
                 eval("self." + self._opcode.capitalize() + "()") 
 
+    #Funkce vrací bool hodnotu na základě toho, zda je dané návěští již definováno
     def IsLabelDefined(self, labelDict, labelName):
         return labelName in labelDict
-    
+
+#Třída reprezentuje globální rámec a lokální a dočasné rámce
 class Frame:
+    #inicializace
     def __init__(self) -> None:
         self.globalFrame = []
         self.frameStack = []
         self.tempFrame = None
-        self._globalVarsList = []
-        self._localVarsList = []
-        self._tempVarsList = []
 
+    #Přidání proměnné do rámce
     def Add(self, variable):
+
+        #Podmínky pro ověření existence rámců
+        if variable.GetFrame() == "TF" and self.tempFrame == None:
+            exit(exitCodes["NonExistingFrameError"])
+        if variable.GetFrame() == "LF" and self.frameStack == []:
+            exit(exitCodes["NonExistingFrameError"])
+
+        #Přidání proměnné do příslušného rámce
         if variable.GetFrame() == "GF":
             self.globalFrame.append(variable)
-            self._globalVarsList.append(variable.GetName())
         if variable.GetFrame() == "TF":
             self.tempFrame.append(variable)
-            self._tempVarsList.append(variable.GetName())
         if variable.GetFrame() == "LF":
             self.frameStack[-1].append(variable)
-            self._localVarsList.append(variable.GetName())
     
+    #Odstraněnní příslušné proměnné z rámce
     def Remove(self, variable):
         if variable.GetFrame() == "GF":
             self.globalFrame.remove(variable)
-            self._globalVarsList.remove(variable.GetName())
         if variable.GetFrame() == "TF":
             self.tempFrame.remove(variable)
-            self._tempVarsList.remove(variable.GetName())
         if variable.GetFrame() == "LF":
             self.frameStack[-1].remove(variable)
-            self._localVarsList.remove(variable.GetName())
 
+    #Funkce zjišťuje zda-li je proměnná v daném rámci již definovaná
     def IsAlreadyDefined(self, variable):
-        
-        name = variable.GetName()
-        if variable.GetFrame() == "GF" and name in self._globalVarsList:
-            exit(exitCodes["SemanticCheckError"])
-        if variable.GetFrame() == "TF" and name in self._tempVarsList:
-            exit(exitCodes["SemanticCheckError"])
-        if variable.GetFrame() == "LF" and name in self._localVarsList:
-            exit(exitCodes["SemanticCheckError"])
+        #Podmínky pro ověření existence rámců
+        if variable.GetFrame() == "TF" and self.tempFrame == None:
+            exit(exitCodes["NonExistingFrameError"])
+        if variable.GetFrame() == "LF" and self.frameStack == []:
+            exit(exitCodes["NonExistingFrameError"])
 
+        if variable.GetFrame() == "GF":
+            for v in self.globalFrame:
+                if v.GetName() == variable.GetName():
+                    exit(exitCodes["SemanticCheckError"])
+        if variable.GetFrame() == "TF":
+            for v in self.tempFrame:
+                if v.GetName() == variable.GetName():
+                    exit(exitCodes["SemanticCheckError"])
+        if variable.GetFrame() == "LF":
+            for v in self.frameStack[-1]:
+                if v.GetName() == variable.GetName():
+                    exit(exitCodes["SemanticCheckError"])
+
+    #Funkce nalezne a vrátí proměnnou v příslušném rámci, není-li proměnná nalezena, funkce buď vrátí hodnotu
+    #false nebo zrovna zavolá exit s příslušnou chybovou hláškou.
     def FindVariable(self, name, leave):
         frame, varName = name.split('@')
-        if frame == "GF" and varName in self._globalVarsList:
+        #Podmínky pro ověření existence rámců
+        if frame == "TF" and self.tempFrame == None:
+            exit(exitCodes["NonExistingFrameError"])
+        if frame == "LF" and self.frameStack == []:
+            exit(exitCodes["NonExistingFrameError"])
+
+        #Hledání proměnné
+        if frame == "GF":
             for v in self.globalFrame:
                 if v.GetName() == varName:
                     return v
-        elif frame == "TF" and varName in self._tempVarsList:
+        elif frame == "TF":
             for v in self.tempFrame:
                 if v.GetName() == varName:
                     return v
-        elif frame == "LF" and varName in self._localVarsList:
+        elif frame == "LF":
             for v in self.frameStack[-1]:
                 if v.GetName() == varName:
                     return v
+                
         elif leave == True:
             exit(exitCodes["NonExistingVariableError"])
         else:
             return False
         
+    #Vytvoření dočasného rámce
     def CreateFrame(self):
         self.tempFrame = []
 
+    #Pushnutí rámce
     def PushFrame(self):
+        #Ověření existence dočasného rámce
+        if self.tempFrame == None:
+            exit(exitCodes["NonExistingFrameError"])
         for v in self.tempFrame:
             v.SetFrame("LF")
+
         self.frameStack.append(self.tempFrame)
-        self._localVarsList.extend(self._tempVarsList)
         self.tempFrame = None
-        self._tempVarsList = []
     
+    #Popnutí rámce
     def PopFrame(self):
-        if bool(self._frameStackFrame):
+        #Ověření existence lokálního rámce
+        if self.frameStack == []:
             exit(exitCodes["NonExistingFrameError"])
-        for v in self._frameStack[-1]:
+        for v in self.frameStack[-1]:
             v.SetFrame("TF")
-        self.tempFrame = self._frameStack[-1]
-        self._tempVarsList.extend(self._localVarsList)
-        self._localVarsList = []
+        self.tempFrame = self.frameStack[-1]
+        self.frameStack.remove(self.frameStack[-1])
 
-
+#Třída reprezentující instrukci aritmetického typu. Třídá je potomek třídy Instruction
 class ArithmeticInstruction(Instruction):
 
+        #inicializace
         def __init__(self, order:int, opcode:str, frame):
             super().__init__(order, opcode, frame)
 
+        #Metody reprezentující jednotlivé instrukce
+
+        #Metoda představující instrukci add, která sečte dva operandy a uloží výsledek do proměnné
         def Add(self):
             var, operand1, operand2 = self.ProcessOperands()
             var.SetValue(operand1 + operand2)
         
+        #Metoda představující instrukci sub, která odečte dva operandy a uloží výsledek do proměnné
         def Sub(self):
             var, operand1, operand2 = self.ProcessOperands()
             var.SetValue(operand1 - operand2)
         
+        #Metoda představující instrukci add, která vynásobí dva operandy a uloží výsledek do proměnné
         def Mul(self):
             var, operand1, operand2 = self.ProcessOperands()
             var.SetValue(operand1 * operand2)
         
+        #Metoda představující instrukci add, která vydělí dva operandy a uloží výsledek do proměnné
         def Idiv(self):
             var, operand1, operand2 = self.ProcessOperands()
             var.SetValue(operand1 - operand2)
@@ -212,30 +290,36 @@ class ArithmeticInstruction(Instruction):
                 exit(exitCodes["FalseOperandValueError"])
             var.SetValue(int(operand1 // operand2))
 
+        #Metoda zpracovává operandy a zajišťuje jejich typovou správnost a kompabilitu
         def ProcessOperands(self):
             arg1 = self._argList[0]
             var = self._frame.FindVariable(arg1.GetArgValue(), True)
             sym1 = self._argList[1]
             sym2 = self._argList[2]
+            
+            #Typová kontrola
             self._typeControl.CheckType(sym1,"int")
             self._typeControl.CheckType(sym2,"int")
-            if not((sym1.IsIntConst() or sym1.IsVariable()) and (sym2.IsIntConst or sym2.IsVariable())):
-                exit(exitCodes["FalseOperandTypeError"])
-            if (sym1.GetDataType() != "int" or sym2.GetDataType() != "int"):
-                exit(exitCodes["FalseOperandTypeError"])
-
+            
             operand1 = int(sym1.GetSymbolValue())
             operand2 = int(sym2.GetSymbolValue())
-            if(operand1 == False or operand2 == False):
+            
+            #Kontrola zda-li jsou proměnné inicializované
+            if(operand1 == "NotInit" or operand2 == "NotInit"):
                 exit(exitCodes["MissingValueError"])
             var.SetType("int")
             return var, operand1, operand2               
 
-
+#Třída obsahující funkce, které reprezentují instrukce pracující s rámci
 class FrameInstruction(Instruction):
+        
+        #inicializace
         def __init__(self, order:int, opcode:str, frame):
             super().__init__(order, opcode, frame)
             self._frame = frame
+        
+        #Metody reprezentující jednotlivé instrukce
+
 
         def Move(self):
             symbType = self._argList[1].GetDataType()
@@ -247,10 +331,12 @@ class FrameInstruction(Instruction):
         def Defvar(self):
             arg = self._argList[0].GetArgValue()
             varFrame, varName = arg.split('@')
+            #vytvoření proměnné a přidání do příslušného rámce
             var = Var(varName, varFrame)
             self._frame.IsAlreadyDefined(var)
             self._frame.Add(var)
         
+        #Metody jsou implementovány ve třídě Frame
         def Createframe(self):
             self._frame.CreateFrame()
 
@@ -260,26 +346,44 @@ class FrameInstruction(Instruction):
         def Popframe(self):
             self._frame.PopFrame()
 
-        #overriding parent method
+#Třída reprezentující instrukce pro ladění programu
+class DebuggingInstruction(Instruction):
+        def __init__(self, order:int, opcode:str, frame):
+            pass
+        def Execute(self):
+            pass
 
-
+#Třída reprezentuje instrukce pro načtení vstupu, vypsání hodnoty a zjištění typu
 class InputOutputTypeInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
 
-    def Read(self):
+    #Metody reprezentující jednotlivé instrukce
+
+    def Read(self, inputFile, line):
         type = self._argList[1].GetArgValue()
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
         
-        inputVal = input()
+        #Zjištění zda-li se načte hodnota ze standartního vstupu nebo ze souboru
+        if(inputFile != False):
+            inputVal = inputFile[line]
+        
+        else:
+            inputVal = input()
+        
+
         result = None
 
+        #Zjištění typu načteného vstupu a jeho následná konverze a přiřazení do výsledku
         if type == "int":
             if re.match(r'[-+]*[0-9]+$', inputVal):
                 result = int(inputVal)
                 var.SetType("int")
 
         elif type == "bool":
+            #re.IGNORECASE zajišťuje, že nezáleží na velikosti písmen
             if re.match(r'^true$', inputVal, re.IGNORECASE):
                 result = True
             else:
@@ -287,16 +391,23 @@ class InputOutputTypeInstruction(Instruction):
             var.SetType("bool")
 
         elif type == "string":
+            #Převedení číselných hodnot charakterů
             result = self.ConvertString(str(inputVal))
             var.SetType("string")
 
+        #Zkontrolování proměnné
         self._typeControl.CheckType(self._argList[0], "var")
 
-        var.SetValue(result)
-
+        #V případě chybného nebo chybějícího vstupu 
+        #bude do proměnné ⟨var⟩ uložena hodnota nil@nil.
         if(result == None):
             var.SetType("nil")
+            var.SetValue("nil")
+        else:
+            var.SetValue(result)
 
+
+    #Funkce vypisuje hodnotu na standartní výstup
     def Write(self):
         output = self._argList[0]
         if output.GetDataType() == "nil":
@@ -306,6 +417,7 @@ class InputOutputTypeInstruction(Instruction):
         else:
             print(str(output.GetSymbolValue()), end = '')
 
+    #Zjištění datového typu
     def Type(self):
         arg1 = self._argList[0]
         
@@ -314,20 +426,33 @@ class InputOutputTypeInstruction(Instruction):
         symb = self._argList[1]
 
         symbType = symb.GetDataType()
-
-        if symbType == "NotInit":
+        
+        #Zjištění zda-li je proměnná inicializovaná, pokud ne, je do výsledné proměnné
+        #uložen prázdný řetězec
+        if symbType == False:
             var.SetValue("")
         else:
             var.SetValue(symbType)
+    
+    #Overriding rodičovské metody, protože každý funkce obsahuje jiné argumenty a funkce
+    #Execute již nemůže obsahovat stejnou implementaci
+    def Execute(self, args):
+        instructionName = self._opcode.lower() 
+        if instructionName == "read":
+            self.Read(args.GetInputFileList(), args.GetInputFileLine())
+        if instructionName== "write":
+            self.Write()
+        if instructionName == "type":
+            self.Type()
 
-    def Execute(self):
-        if self._opcode.lower() in InputOutputTypeInstructions:
-            eval("self." + self._opcode.capitalize() + "()") 
-
-
+#Třída obsahuje funkce reprezentující relační a booleovské instrukce
 class LogicalInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
             super().__init__(order, opcode, frame)
+
+    #Metody reprezentující jednotlivé instrukce
 
     def Lt(self):
         var, operand1, operand2 = self.ProcessOperands()
@@ -387,9 +512,12 @@ class LogicalInstruction(Instruction):
 
         var.SetValue(not(arg1Val))
 
+    #Funkce zpracovává operandy pro instrukce And a Or
     def ProcessLogicOperands(self):
         arg1 = self._argList[1]
         arg2 = self._argList[2]
+        
+        #typová kontrola
         self._typeControl.CheckType(arg1, "bool")
         self._typeControl.CheckType(arg2, "bool")
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
@@ -397,6 +525,7 @@ class LogicalInstruction(Instruction):
         arg1Val = arg1.GetSymbolValue()
         arg2Val = arg2.GetSymbolValue()
 
+        #konverze řetězcové hodnoty na skutečný bool typ
         if arg1Val.lower() == "true":
             arg1Val = True
         else:
@@ -409,6 +538,7 @@ class LogicalInstruction(Instruction):
 
         return var, arg1Val, arg2Val
     
+    #Funkce zpracovává operandy pro instrukce Lt a Gt
     def ProcessOperands(self):
         arg1 = self._argList[1]
         arg2 = self._argList[2]
@@ -420,15 +550,20 @@ class LogicalInstruction(Instruction):
 
         return var, arg1.GetSymbolValue(), arg2.GetSymbolValue()
 
-
+#Třída reprezentuje instrukce pro konverzi mezi datovými typy
 class TypeConversionInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
+
+    #Metody reprezentující jednotlivé instrukce
 
     def Int2char(self):
         arg = self._argList[1]
         self._typeControl.CheckType(arg, "int")
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+        #Pokus o parsování int hodnoty
         try:
             char = chr(int(arg.GetSymbolValue()))
         except: 
@@ -445,84 +580,99 @@ class TypeConversionInstruction(Instruction):
         string = arg1.GetSymbolValue()
         stringLen = len(string)
         index = int(arg2.GetSymbolValue())
+
+        #Kontrola rozsahu indexu 
         if index < 0 or index > (stringLen - 1):
             exit(exitCodes["FalseStringOperationError"])
         
         var.SetType("int")
         var.SetValue(ord(string[index]))
 
-
+#Třída reprezentující intrukce pro operace se řetězci
 class StringInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
 
+    #Metody reprezentující jednotlivé instrukce
+
     def Concat(self):
         var, arg1, arg2 = self.ProcessInstruction()
+        #kontrola typů
         self._typeControl.CheckType(arg1, "string")
         self._typeControl.CheckType(arg2, "string")
+
         var.SetType("string")
         var.SetValue(str(arg1.GetSymbolValue()) + str(arg2.GetSymbolValue()))
 
     def Strlen(self):
         arg = self._argList[1]
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
+
+        #kontrola typů
         self._typeControl.CheckType(arg, "string")
+
         strLen = len(str(arg.GetSymbolValue()))
         var.SetType("int")
         var.SetValue(strLen)
 
     def Getchar(self):
         var, arg1, arg2 = self.ProcessInstruction()
+        #kontrola typů
         self._typeControl.CheckType(arg1, "string")
         self._typeControl.CheckType(arg2, "int")
+
         string = str(arg1.GetSymbolValue())
         index = int(arg2.GetSymbolValue())
+
+        #kontrola zda-li index není mimo hranice řetězce
         if index < 0 or index > (len(string)-1):
             exit(exitCodes["FalseStringOperationError"])
+
         var.SetType("string")
         var.SetValue(string[index])
 
     def Setchar(self):
         var, arg1, arg2 = self.ProcessInstruction()
+
+        #kontrola typů
         self._typeControl.checkThreeArgs(self._argList[0], arg1, arg2, "string", "int", "string")
+
         modifiedString = str(var.GetValue())
         index = int(arg1.GetSymbolValue())
         stringToGetCharFrom = str(arg2.GetSymbolValue())
 
+        #kontrola zda-li index není mimo hranice řetězce
         if index < 0 or index > (len(modifiedString)-1):
             exit(exitCodes["FalseStringOperationError"])
         
-        text = 'abcdefg'
-        new = list(text)
-        new[6] = 'W'
-        ''.join(new)
-
+        #převedení stringu na list, a zpátky na string, protože 
+        #python nepodporuje přiřazení při přistupu do řetězce za pomocí indexu
         modifiedStringList = list(modifiedString)
         modifiedStringList[index] = stringToGetCharFrom[0]
         modifiedString = ''.join(modifiedStringList)
         var.SetValue(modifiedString)
 
+    #zpracování operandů pro instrukce
     def ProcessInstruction(self):
         arg1 = self._argList[1]
         arg2 = self._argList[2]
         var = self._frame.FindVariable(self._argList[0].GetArgValue(), True)
         return var, arg1, arg2
 
-
+#Třída reprezentující intrukce pro řízení programu
 class DataFlowInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
 
-    def Label(self, labelDict, index):
-        labelName = self._argList[0].GetArgValue()
-        if self.IsLabelDefined(labelDict, labelName):    
-            exit(exitCodes["SemanticCheckError"])
+    #Metody reprezentující jednotlivé instrukce
 
-        labelDict[labelName] = index
-        index+=1
-        return index
-
-    def Jump(self, labelDict, index):        
+    def Jump(self, labelDict, index):
+        
+        #Kontrola existence návěští        
         if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
             exit(exitCodes["SemanticCheckError"])
         
@@ -530,10 +680,15 @@ class DataFlowInstruction(Instruction):
         return index
 
     def Jumpifeq(self, labelDict, index):
+
+        #Kontrola existence návěští    
         if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
             exit(exitCodes["SemanticCheckError"])
 
+        #Kontrola typů
         isEq = self._typeControl.TypesEqualOrNil(self._argList[1], self._argList[2], False)
+
+        #Inkrementace indexu aby se mohlo pokračovat na další instrukci
         index = int(index)+1
         if not(isEq):
             return index
@@ -545,10 +700,15 @@ class DataFlowInstruction(Instruction):
         return index
 
     def Jumpifneq(self, labelDict, index):
+
+        #Kontrola existence návěští 
         if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
             exit(exitCodes["SemanticCheckError"])
 
+        #Kontrola typů
         isEq = self._typeControl.TypesEqualOrNil(self._argList[1], self._argList[2], False)
+
+        #Inkrementace indexu aby se mohlo pokračovat na další instrukci
         index = int(index)+1
         if not(isEq):
             return index
@@ -561,8 +721,12 @@ class DataFlowInstruction(Instruction):
 
     def ExitProgram(self):
         arg = self._argList[0]
+
+        #Typová kontrola
         self._typeControl.CheckType(arg, "int")
         exitVal = int(arg.GetSymbolValue())
+
+        #Kontrola rozsahu exit kódů
         if exitVal not in range(0,50):
             exit(exitCodes["FalseOperandValueError"])
         exit(exitVal)
@@ -574,12 +738,18 @@ class DataFlowInstruction(Instruction):
             method = getattr(self, self._opcode.capitalize())
             return method(labelDict, index)
 
-
+#Třída reprezentující intrukce 'volání funkce' - skok na návěští s podporou návratu
 class CallReturnInstruction(Instruction):
+
+    #inicializace
     def __init__(self, order:int, opcode:str, frame):
         super().__init__(order, opcode, frame)
 
+    #Metody reprezentující jednotlivé instrukce
+
     def Call(self, labelDict, callStack, index):
+
+        #Kontrola existence návěští
         if not(self.IsLabelDefined(labelDict, self._argList[0].GetArgValue())):
             exit(exitCodes["SemanticCheckError"])
         callStack.append(index)
@@ -587,25 +757,28 @@ class CallReturnInstruction(Instruction):
         return index, callStack
 
     def Return(self, labelDict, callStack, index):
+
+        #Kontrola zda-li byla zavoláná funkce call
         if len(callStack) == 0:
             index+=1
             return index, callStack
         index = callStack[-1] + 1
         return index, callStack
 
+    #Overriding rodičovské metody
     def Execute(self, labelDict, callStack, index):
         if self._opcode.lower() in Instructions:
             method = getattr(self, self._opcode.capitalize())
             return method(labelDict, callStack, index)
     
-
+#Factory vracející příslušný typ instrukce
 class InstructionFactory:
-    
+
+    #inicializace
     def __init__(self, order, opcode, frame) -> None:
         self._order = order
         self._opcode = opcode.lower()
         self._frame = frame
-
 
     def GetInstructionType(self):
         if self._opcode in FrameInstructions:
@@ -624,9 +797,13 @@ class InstructionFactory:
             return DataFlowInstruction(self._order, self._opcode, self._frame)
         if self._opcode in CallReturnInstructions:
             return CallReturnInstruction(self._order, self._opcode, self._frame)
-        
+        if self._opcode in DebuggingInstructions:
+            return DebuggingInstruction(self._order, self._opcode, self._frame)
 
+#Třída obsahující metody pro kontrolu typů
 class TypeController:
+
+    #inicializace
     def __init__(self, frame) -> None:
         self._frame = frame
 
@@ -637,20 +814,23 @@ class TypeController:
         
     def CheckType(self, arg, expectedSymbType):
 
-        if expectedSymbType == "var":
+        if expectedSymbType == "var": 
             self._frame.FindVariable(arg.GetArgValue(), True)
 
         if expectedSymbType == "int":
-            if not(arg.IsIntConst() or self.CheckVarsType(arg, "intVar")):
-                exit(exitCodes["FalseOperandTypeError"])
+            if not(arg.IsIntConst()):
+                if not(self.CheckVarsType(arg, "intVar")):
+                    exit(exitCodes["FalseOperandTypeError"])
 
         if expectedSymbType == "string":
-            if not(arg.IsStringConst() or self.CheckVarsType(arg, "stringVar")):
-                exit(exitCodes["FalseOperandTypeError"])
+            if not(arg.IsIntConst()):
+                if not(self.CheckVarsType(arg, "stringVar")):
+                    exit(exitCodes["FalseOperandTypeError"])
 
         if expectedSymbType == "bool":
-            if not(arg.IsBoolConst() or self.CheckVarsType(arg, "boolVar")):
-                exit(exitCodes["FalseOperandTypeError"])
+            if not(arg.IsBoolConst()):
+                if not(self.CheckVarsType(arg, "boolVar")):
+                    exit(exitCodes["FalseOperandTypeError"])
 
     def TypesEqual(self, arg1, arg2):
         if arg1.GetDataType() != arg2.GetDataType():
@@ -671,6 +851,8 @@ class TypeController:
     def CheckVarsType(self, arg, expectedVarType):
         if expectedVarType == "intVar":
             var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if var.GetValue() == "NotInit":
+                exit(exitCodes["MissingValueError"])
             if(var == False):
                 return False
             if var.GetType() != "int":
@@ -679,6 +861,8 @@ class TypeController:
 
         if expectedVarType == "stringVar":
             var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if var.GetValue() == "NotInit":
+                exit(exitCodes["MissingValueError"])
             if(var == False):
                 return False
             if var.GetType() != "string":
@@ -687,69 +871,81 @@ class TypeController:
 
         if expectedVarType == "boolVar":
             var = self._frame.FindVariable(arg.GetArgValue(), False)
+            if var.GetValue() == "NotInit":
+                exit(exitCodes["MissingValueError"])
             if(var == False):
                 return False
             if var.GetType() != "bool":
                 exit(exitCodes["FalseOperandTypeError"])
             return True
         
-
+#Třída reprezentuje argumenty instrukce
 class InstructionArguments:
 
     def __init__(self, type, value, frame) -> None:
-        self._argType = type
+        self._argType = type[0]
         self._argValue = value
         self._frame = frame
 
+    #Gettery pro přístup k privátním atributum
     def GetArgType(self):
-        return self._argType[0]
+        return self._argType
     
     def GetArgValue(self):
         return self._argValue
     
+    #Pomocné funkce pro určení typu
     def IsVariable(self):
-        if re.match(r'^(GF|LF|TF)@.*', self._argValue):   
+        if self._argType == "var":
             return True
         return False
     
     def IsIntConst(self):
-        if re.match(r'^int@[-+]*[0-9]+$', self._argValue):
+        if self._argType == "int":
             return True
         return False
     
     def IsStringConst(self):
-        if re.match(r'^string@.*', self._argValue):
+        if self._argType == "string":
             return True
         return False
     
     def IsBoolConst(self):
-        if re.match(r'^bool@((true|false){1})$', self._argValue):
+        if self._argType == "bool":
             return True
         return False
     
     def IsNilConst(self):
-        if re.match(r'^nil@nil$|^nil@$', self._argValue):
+        if self._argType == "nil":
             return True
         return False
     
+    #Funkce vraci hodnotu symbolu
     def GetSymbolValue(self):
-        symbVal = self._argValue.split('@')
-        var = self._frame.FindVariable(self._argValue, False)
-        if var != False:
-            if var.GetType() == "int":
-                return int(var.GetValue())
-            else: 
-                return var.GetValue()
+        if self.IsVariable():
+            var = self._frame.FindVariable(self._argValue, False)
+            if var != False:
+                if var.GetType() == "int" and var.GetValue() != "NotInit":
+                    return int(var.GetValue())
+                else: 
+                    return var.GetValue()
+            else:
+                #pokud nebyla promenna nalezena - error
+                exit(exitCodes["NonExistingVariableError"])
         if self.IsIntConst():
-            return int(symbVal[1])
-        if self.IsBoolConst() or self.IsStringConst() or self.IsNilConst():
-            return symbVal[1]
-        
+            return (self._argValue)
+        if self.IsStringConst():
+            return self.ConvertString(str(self._argValue))
+        if self.IsBoolConst() or self.IsNilConst():
+            return self._argValue
+
+    #pomocna funkce  
     def GetVarName(self):
         if self.IsVariable():
             name = self._argValue.split('@')
             return name[1]
-        
+    
+    #Navraceni datoveho typu, pokud neni promenna incializovana, vraci False
     def GetDataType(self):
         if self.IsIntConst():
             return "int"
@@ -765,8 +961,31 @@ class InstructionArguments:
             if type == "NotInit":
                 return False
             return type
-        
 
+    #Funkce pro převedení charakterů reprezentovaných tříčíselným kódem na jejich hodnotu
+    #Vstupem je řetězec načtený z funkce Read nebo ze zdrojového souboru
+    #Výstupem je řetěze, který již neobsahuje charaktery v podobě kódů
+    def ConvertString(self, EntryString):
+        resultString = ''
+        i = 0
+        while i < len(EntryString):
+            if i+3 < len(EntryString) and EntryString[i] == '\\' and EntryString[i+1:i+4].isdigit():
+                resultString += chr(int(EntryString[i+1:i+4]))
+                i += 4
+            else:
+                resultString += EntryString[i]
+                i += 1
+        return resultString
+    
+    #Zjisteni zda-li je promenna inicializovana, pokud ne - error
+    def isVarInit(self):
+        if self.IsVariable():
+            var = self._frame.FindVariable(self._argValue, True)
+            result = var.IsInit()
+            if not(result):
+                exit[exitCodes["MissingValueError"]]
+
+#Třída reprezentující proměnnou
 class Var:
     def __init__(self, name, frame) -> None:
         self._name = name
@@ -775,6 +994,7 @@ class Var:
         self._fullname = self._frame + "@" + self._name
         self._value = None
 
+    #Gettery, pro pristup k privatnim atributum
     def GetName(self):
         return self._name
     
@@ -790,6 +1010,7 @@ class Var:
     def GetType(self):
         return self._type
     
+    #Settery, pro nastaveni hodnoty privatnich atributu
     def SetType(self, type):
         self._type = type
 
@@ -802,39 +1023,61 @@ class Var:
     def SetValue(self, value):
         self._value = value
 
-    def isInit(self):
-        if(self._value == None):
+    def IsInit(self):
+        if(self._value == None or self._type == "NotInit"):
             return False
         return True
     
-     
+#Třída pro řízení celého programu   
 class Interpret:
+
+    #inicializace
     def __init__(self) -> None:
         self._args = ArgsParser()
         self._tree = None
         self._root = None
         self._instructionList = []
-
+    
+    #Vytvoření XML stromu
     def makeXmlTree(self):
         self._args.ProcessArgs()
         self._tree = self._args.GetXmlTree()
         self._root = self._tree.getroot()
 
+    #Průchod xml stromem a ukladani hodnot do listu instrukcí
     def ConvertXmlTreeToInstructList(self):
+
+        #vytvoření framu pro předání do instrukcí
         frame = Frame()
         for ins in self._root:
-            instructionProps = list(ins.attrib.values())
-            instruction = InstructionFactory(int(instructionProps[0]), instructionProps[1], frame).GetInstructionType()         
 
+            #list obsahujici order a opcode instrukce
+            instructionProps = list(ins.attrib.values())
+            
+            #vytvoření instrukce za pomocí factory
+            instruction = InstructionFactory(int(instructionProps[0]), instructionProps[1], frame).GetInstructionType()         
+            argProps = []
+
+            #Seřazení argumentů do správného pořadí
             for arg in ins:
+                argProps.append(arg)
+            argProps.sort(key = lambda x: x.tag)
+
+            #Přidání argumentů do instrukcí
+            for arg in argProps:
                 instructionArg = InstructionArguments(list(arg.attrib.values()), arg.text, frame)
                 instruction.AddArgument(instructionArg)
             
+            #Přidaní instrukce do listu
             self._instructionList.append(instruction)
 
+        #Seřazení instrukcí podle order
         self._instructionList.sort(key=lambda x: x.GetOrder())
+
+        #Koncová zarážka pro průchod cyklem
         self._instructionList.append("END")
 
+    #Gettery, pro pristup k privatnim atributum
     def GetInstructionList(self):
         return self._instructionList
     
@@ -844,24 +1087,58 @@ class Interpret:
     def GetTree(self):
         return self._tree   
     
-    def start(self):
-        self.makeXmlTree()
-        self.ConvertXmlTreeToInstructList()
+    #Funkce řídící celý program
+    def Start(self):
+
+        #Pokud je špatný vstup XML formátu - chyba 31
+        try:
+            self.makeXmlTree()
+            self.ConvertXmlTreeToInstructList()
+        except:
+            exit(31)
+        
+        #inicializace 
         index = 0
         labelDict = {}
         callStack = []
+        
+        #První průchod ve kterém se ukládají návěští do slovníku (vykonává pouze instrukci LABEL)
         while(self._instructionList[index] != "END"):
-            if self._instructionList[index].GetOpcode() in DataFlowInstructions:
-                index = self._instructionList[index].Execute(labelDict, index)
-            if self._instructionList[index].GetOpcode() in CallReturnInstructions:
-                index, callStack = self._instructionList[index].Execute(labelDict, callStack, index)                  
-            else:
-                self._instructionList[index].Execute()
+            if self._instructionList[index].GetOpcode().lower() == "label":
+                argList = self._instructionList[index].GetArgList()
+                if self._instructionList[index].IsLabelDefined(labelDict, argList[0].GetArgValue()):
+                    exit(exitCodes["SemanticCheckError"])
+                else:
+                    labelDict[argList[0].GetArgValue()] = index
+
+            index+=1
+
+        index = 0
+
+        #Druhý průchod, který již vykonává všechny instrukce (kromě instrukce LABEL)
+        while(self._instructionList[index] != "END"):
+
+            #Funkce Execute u instrukcí řídící tok programu vyžaduje jiné argumenty
+            if self._instructionList[index].GetOpcode().lower() == "label":
                 index+=1
+                continue
+            if self._instructionList[index].GetOpcode().lower() in DataFlowInstructions:
+                index = self._instructionList[index].Execute(labelDict, index)
+                continue
+            if self._instructionList[index].GetOpcode().lower() in CallReturnInstructions:
+                index, callStack = self._instructionList[index].Execute(labelDict, callStack, index)
+                continue
+            if self._instructionList[index].GetOpcode().lower() in InputOutputTypeInstructions:
+                self._instructionList[index].Execute(self._args)
+                index+=1
+                continue
 
+            self._instructionList[index].Execute()
+            index+=1
 
+#Program
 i = Interpret()
-i.start()
+i.Start()
 
 
 

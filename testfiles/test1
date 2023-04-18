@@ -1,37 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <program language="IPPcode23">
-<instruction order="1" opcode="DEFVAR">
-  <arg1 type="var">GF@first</arg1>
- </instruction>
- <instruction order="2" opcode="DEFVAR">
-  <arg1 type="var">GF@second</arg1>
- </instruction>
- <instruction order="3" opcode="MOVE">
-  <arg1 type="var">GF@second</arg1>
-  <arg2 type="string">int@8</arg2>
- </instruction>
- <instruction order="4" opcode="MOVE">
-  <arg1 type="var">GF@first</arg1>
-  <arg2 type="int">int@5</arg2>
- </instruction>
-  <instruction order="8" opcode="LABEL">
-  <arg1 type="label">LABEL1</arg1>
-  </instruction>
- <instruction order="10" opcode="WRITE">
-  <arg1 type="var">string@FirstWrite</arg1>
- </instruction>
- <instruction order="11" opcode="WRITE">
-  <arg1 type="var">string@SecondWrite</arg1>
- </instruction>
-  <instruction order="12" opcode="RETURN">
- </instruction>
- <instruction order="11" opcode="WRITE">
-  <arg1 type="var">string@ThirdWrite</arg1>
- </instruction>
- <instruction order="13" opcode="CALL">
-  <arg1 type="label">LABEL1</arg1>
-  </instruction>
-  <instruction order="14" opcode="WRITE">
-  <arg1 type="var">string@gotHere</arg1>
- </instruction>
+	<instruction order="1" opcode="DEFVAR">
+		<arg1 type="var">GF@counter</arg1>
+ 	</instruction>
+  <instruction order="2" opcode="DEFVAR">
+		<arg1 type="var">GF@couter</arg1>
+ 	</instruction>
 </program>
