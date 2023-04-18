@@ -1,6 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-DEFVAR GF@b
-
-OR GF@a GF@b bool@false

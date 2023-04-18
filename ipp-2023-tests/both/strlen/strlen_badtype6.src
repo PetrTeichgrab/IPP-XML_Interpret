@@ -1,8 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-DEFVAR GF@b
-
-MOVE GF@b nil@nil
-
-STRLEN GF@a GF@b

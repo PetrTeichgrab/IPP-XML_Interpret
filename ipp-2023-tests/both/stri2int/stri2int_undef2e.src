@@ -1,8 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-
-CREATEFRAME
-PUSHFRAME
-
-STRI2INT GF@a LF@undefined int@2

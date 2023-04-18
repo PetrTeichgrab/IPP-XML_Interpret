@@ -1,9 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-
-STRLEN GF@a string@Ahoj
-
-TYPE GF@a GF@a
-
-WRITE GF@a

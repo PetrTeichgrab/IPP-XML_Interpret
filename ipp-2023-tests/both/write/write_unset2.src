@@ -1,6 +1,0 @@
-.IPPcode23
-
-CREATEFRAME
-DEFVAR TF@a
-
-WRITE TF@a

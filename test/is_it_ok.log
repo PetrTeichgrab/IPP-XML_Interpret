@@ -1,0 +1,16 @@
+Archive:  xteich01.zip
+  inflating: interpret.py            
+  inflating: Readme2.pdf             
+usage: Interpret [-h] [-s SOURCE] [-i INPUT]
+
+Interpret XML kódu
+
+options:
+  -h, --help            show this help message and exit
+  -s SOURCE, --source SOURCE
+                        Argument source musí obsahovat cestu k souboru se XML
+                        reprezentací zdrojového kódu
+  -i INPUT, --input INPUT
+                        Argument Input musí obsahovat cestu k souboru se
+                        vstupy pro samotnou interpretaci zadaného zdrojového
+                        kódu.

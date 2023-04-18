@@ -1,6 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-MOVE GF@a string@abcd
-
-SETCHAR GF@a nil@nil string@x

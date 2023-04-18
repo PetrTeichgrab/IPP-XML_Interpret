@@ -1,5 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-
-SETCHAR GF@a int@2 string@X

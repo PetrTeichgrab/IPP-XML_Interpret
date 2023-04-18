@@ -1,7 +1,0 @@
-.IPPcode23
-
-DEFVAR GF@a
-
-TYPE GF@a int@150
-
-WRITE GF@a

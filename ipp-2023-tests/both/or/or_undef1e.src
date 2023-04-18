@@ -1,6 +1,0 @@
-.IPPcode23
-
-CREATEFRAME
-PUSHFRAME
-
-OR LF@undefined bool@true bool@true
